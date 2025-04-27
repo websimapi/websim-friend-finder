@@ -284,33 +284,27 @@
       const [filter, setFilter] = useState('all');
       const [searchQuery, setSearchQuery] = useState('');
       
-      // Fix: Properly handle the subscription to peers data
-      const peers = useSyncExternalStore(
-        React.useCallback((callback) => {
-          // This callback should setup the subscription and return cleanup
-          const unsubscribe = room.subscribePresence(() => {
-            callback(); // Notify React that the store has changed
-          });
-          return unsubscribe;
-        }, []), // Empty dependency array because room won't change
-        React.useCallback(() => {
-          // This function should return the current state
-          return Object.values(room.peers);
-        }, []) // Empty dependency array
-      );
+      const [peersList, setPeersList] = useState([]);
       
-      // Get all follow records
+      useEffect(() => {
+        const unsubscribe = room.subscribePresence(() => {
+          setPeersList(Object.values(room.peers));
+        });
+        
+        setPeersList(Object.values(room.peers));
+        
+        return unsubscribe;
+      }, []);
+      
       const follows = useSyncExternalStore(
         room.collection('follow').subscribe,
         room.collection('follow').getList
       );
       
-      // Process follows data to get follower/following counts
       const userStats = useMemo(() => {
         const stats = {};
         
-        // Initialize stats for all peers
-        peers.forEach(peer => {
+        peersList.forEach(peer => {
           stats[peer.username] = {
             followers: 0,
             following: 0,
@@ -318,7 +312,6 @@
           };
         });
         
-        // Count followers and following
         follows.forEach(follow => {
           const follower = follow.username;
           const following = follow.followsUsername;
@@ -331,24 +324,20 @@
             stats[follower].following++;
           }
           
-          // Check if current user is following
           if (follower === currentUsername && stats[following]) {
             stats[following].isFollowedByMe = true;
           }
         });
         
         return stats;
-      }, [follows, peers, currentUsername]);
+      }, [follows, peersList, currentUsername]);
       
-      // Filter users based on current tab and search query
       const filteredUsers = useMemo(() => {
-        return peers.filter(peer => {
-          // Apply search filter
+        return peersList.filter(peer => {
           if (searchQuery && !peer.username.toLowerCase().includes(searchQuery.toLowerCase())) {
             return false;
           }
           
-          // Apply tab filter
           if (filter === 'following') {
             return userStats[peer.username]?.isFollowedByMe;
           } else if (filter === 'not-following') {
@@ -357,7 +346,7 @@
           
           return true;
         });
-      }, [peers, filter, searchQuery, userStats, currentUsername]);
+      }, [peersList, filter, searchQuery, userStats, currentUsername]);
       
       return (
         <div className="card">
@@ -424,74 +413,44 @@
       );
     }
     
-    function FollowButton({ targetUsername, currentUsername, isFollowing }) {
-      const [following, setFollowing] = useState(isFollowing);
-      const [loading, setLoading] = useState(false);
+    function UserProfile({ user, currentUsername, isCurrentUser, onEditProfile, isEditing, onFinishEditing }) {
+      const [profileData, setProfileData] = useState({});
       
-      // Update when prop changes
       useEffect(() => {
-        setFollowing(isFollowing);
-      }, [isFollowing]);
-      
-      const handleToggleFollow = async (e) => {
-        e.stopPropagation();
-        setLoading(true);
-        
-        if (following) {
-          // Unfollow: find and delete the follow record
-          const myFollows = room.collection('follow')
-            .filter({ username: currentUsername, followsUsername: targetUsername })
-            .getList();
-            
-          if (myFollows.length > 0) {
-            await room.collection('follow').delete(myFollows[0].id);
-          }
-        } else {
-          // Follow: create a new follow record
-          await room.collection('follow').create({
-            followsUsername: targetUsername
+        const unsubscribe = room.collection('profile')
+          .filter({ username: user.username })
+          .subscribe(profiles => {
+            if (profiles.length > 0) {
+              setProfileData(profiles[0]);
+            }
           });
+          
+        const profiles = room.collection('profile')
+          .filter({ username: user.username })
+          .getList();
+          
+        if (profiles.length > 0) {
+          setProfileData(profiles[0]);
         }
         
-        setFollowing(!following);
-        setLoading(false);
-      };
+        return unsubscribe;
+      }, [user.username]);
       
-      return (
-        <button 
-          className={`follow-btn ${following ? 'following' : ''}`} 
-          onClick={handleToggleFollow}
-          disabled={loading}
-        >
-          {loading ? '...' : (following ? 'Following' : 'Follow')}
-        </button>
-      );
-    }
-    
-    function UserProfile({ user, currentUsername, isCurrentUser, onEditProfile, isEditing, onFinishEditing }) {
-      // Get user profile data
-      const profiles = useSyncExternalStore(
-        room.collection('profile').filter({ username: user.username }).subscribe,
-        () => room.collection('profile').filter({ username: user.username }).getList()
-      );
+      const [stats, setStats] = useState({ followers: 0, following: 0, isFollowedByMe: false });
       
-      // Get follow stats
-      const follows = useSyncExternalStore(
-        room.collection('follow').subscribe,
-        room.collection('follow').getList
-      );
-      
-      const profileData = profiles[0] || {};
-      
-      const stats = useMemo(() => {
-        const followers = follows.filter(f => f.followsUsername === user.username).length;
-        const following = follows.filter(f => f.username === user.username).length;
-        const isFollowedByMe = follows.some(
-          f => f.username === currentUsername && f.followsUsername === user.username
-        );
+      useEffect(() => {
+        const unsubscribe = room.collection('follow').subscribe(follows => {
+          const followers = follows.filter(f => f.followsUsername === user.username).length;
+          const following = follows.filter(f => f.username === user.username).length;
+          const isFollowedByMe = follows.some(
+            f => f.username === currentUsername && f.followsUsername === user.username
+          );
+          
+          setStats({ followers, following, isFollowedByMe });
+        });
         
-        return { followers, following, isFollowedByMe };
-      }, [follows, user.username, currentUsername]);
+        return unsubscribe;
+      }, [user.username, currentUsername]);
       
       if (isEditing) {
         return <ProfileEditor profile={profileData} onFinish={onFinishEditing} />;
@@ -530,6 +489,51 @@
             />
           )}
         </div>
+      );
+    }
+    
+    function FollowButton({ targetUsername, currentUsername, isFollowing }) {
+      const isFollowingRef = useRef(isFollowing);
+      const [following, setFollowing] = useState(isFollowing);
+      const [loading, setLoading] = useState(false);
+      
+      useEffect(() => {
+        if (isFollowing !== isFollowingRef.current) {
+          isFollowingRef.current = isFollowing;
+          setFollowing(isFollowing);
+        }
+      }, [isFollowing]);
+      
+      const handleToggleFollow = async (e) => {
+        e.stopPropagation();
+        setLoading(true);
+        
+        if (following) {
+          const myFollows = room.collection('follow')
+            .filter({ username: currentUsername, followsUsername: targetUsername })
+            .getList();
+            
+          if (myFollows.length > 0) {
+            await room.collection('follow').delete(myFollows[0].id);
+          }
+        } else {
+          await room.collection('follow').create({
+            followsUsername: targetUsername
+          });
+        }
+        
+        setFollowing(!following);
+        setLoading(false);
+      };
+      
+      return (
+        <button 
+          className={`follow-btn ${following ? 'following' : ''}`} 
+          onClick={handleToggleFollow}
+          disabled={loading}
+        >
+          {loading ? '...' : (following ? 'Following' : 'Follow')}
+        </button>
       );
     }
     
@@ -601,7 +605,6 @@
       );
     }
     
-    // Render the App
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
