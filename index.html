@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Friend Finder</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f7f9fc;
+      color: #333;
+    }
+    .app-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #4a4a4a;
+    }
+    .main-content {
+      display: flex;
+      gap: 20px;
+    }
+    .left-panel {
+      flex: 3;
+    }
+    .right-panel {
+      flex: 2;
+    }
+    .card {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .user-item {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .user-item:hover {
+      background-color: #f5f8ff;
+    }
+    .user-item.selected {
+      background-color: #e5efff;
+    }
+    .avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      margin-right: 15px;
+      object-fit: cover;
+    }
+    .user-info {
+      flex: 1;
+    }
+    .username {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .stats {
+      display: flex;
+      color: #777;
+      font-size: 14px;
+    }
+    .stat {
+      margin-right: 15px;
+    }
+    .follow-btn {
+      background: #4a7bff;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background-color 0.2s;
+    }
+    .follow-btn:hover {
+      background: #3461d8;
+    }
+    .follow-btn.following {
+      background: #ddd;
+      color: #555;
+    }
+    .profile-card {
+      text-align: center;
+    }
+    .profile-avatar {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      object-fit: cover;
+    }
+    .profile-username {
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    .profile-bio {
+      color: #666;
+      margin-bottom: 20px;
+    }
+    .profile-stats {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .profile-stat {
+      text-align: center;
+      margin: 0 15px;
+    }
+    .profile-stat-count {
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .profile-stat-label {
+      color: #777;
+      font-size: 14px;
+    }
+    .edit-profile-btn {
+      background: #f0f0f0;
+      color: #555;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    .edit-profile-btn:hover {
+      background: #e0e0e0;
+    }
+    .profile-form {
+      margin-top: 20px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    .form-input {
+      width: 100%;
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #ddd;
+    }
+    .form-textarea {
+      width: 100%;
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #ddd;
+      min-height: 100px;
+      resize: vertical;
+    }
+    .search-box {
+      width: 100%;
+      padding: 12px;
+      border-radius: 25px;
+      border: 1px solid #ddd;
+      margin-bottom: 20px;
+      font-size: 16px;
+      background: white;
+    }
+    .filter-tabs {
+      display: flex;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #ddd;
+    }
+    .filter-tab {
+      padding: 10px 20px;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      font-weight: bold;
+    }
+    .filter-tab.active {
+      border-color: #4a7bff;
+      color: #4a7bff;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 30px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef, useSyncExternalStore } = React;
+    
+    // Initialize WebsimSocket
+    const room = new WebsimSocket();
+    
+    function App() {
+      const [selectedUser, setSelectedUser] = useState(null);
+      const [isEditingProfile, setIsEditingProfile] = useState(false);
+      const [clientInfo, setClientInfo] = useState(null);
+      
+      // Initialize the connection
+      useEffect(() => {
+        const initRoom = async () => {
+          await room.initialize();
+          const clientId = room.clientId;
+          setClientInfo({
+            id: clientId,
+            username: room.peers[clientId].username,
+            avatarUrl: room.peers[clientId].avatarUrl
+          });
+          
+          // Create profile for current user if it doesn't exist
+          const myProfiles = room.collection('profile').filter({ username: room.peers[clientId].username }).getList();
+          if (myProfiles.length === 0) {
+            await room.collection('profile').create({
+              bio: '',
+              interests: '',
+              location: '',
+            });
+          }
+        };
+        
+        initRoom();
+      }, []);
+      
+      if (!clientInfo) {
+        return <div className="app-container"><div className="card">Loading...</div></div>;
+      }
+      
+      return (
+        <div className="app-container">
+          <div className="header">
+            <h1>Friend Finder</h1>
+            <p>Connect with amazing people and expand your network</p>
+          </div>
+          
+          <div className="main-content">
+            <div className="left-panel">
+              <UserList 
+                currentUsername={clientInfo.username} 
+                onSelectUser={setSelectedUser}
+                selectedUser={selectedUser}
+              />
+            </div>
+            
+            <div className="right-panel">
+              {selectedUser ? (
+                <UserProfile 
+                  user={selectedUser}
+                  currentUsername={clientInfo.username}
+                  isCurrentUser={selectedUser.username === clientInfo.username}
+                  onEditProfile={() => setIsEditingProfile(true)}
+                  isEditing={isEditingProfile && selectedUser.username === clientInfo.username}
+                  onFinishEditing={() => setIsEditingProfile(false)}
+                />
+              ) : (
+                <div className="card empty-state">
+                  <h3>Select a user to view their profile</h3>
+                  <p>Click on any user from the list to see more details and connect</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    function UserList({ currentUsername, onSelectUser, selectedUser }) {
+      const [filter, setFilter] = useState('all');
+      const [searchQuery, setSearchQuery] = useState('');
+      
+      // Get all connected users from peers
+      const peers = useSyncExternalStore(
+        (callback) => {
+          const unsub = room.subscribePresence(() => callback());
+          return unsub;
+        },
+        () => Object.values(room.peers)
+      );
+      
+      // Get all follow records
+      const follows = useSyncExternalStore(
+        room.collection('follow').subscribe,
+        room.collection('follow').getList
+      );
+      
+      // Process follows data to get follower/following counts
+      const userStats = useMemo(() => {
+        const stats = {};
+        
+        // Initialize stats for all peers
+        peers.forEach(peer => {
+          stats[peer.username] = {
+            followers: 0,
+            following: 0,
+            isFollowedByMe: false
+          };
+        });
+        
+        // Count followers and following
+        follows.forEach(follow => {
+          const follower = follow.username;
+          const following = follow.followsUsername;
+          
+          if (stats[following]) {
+            stats[following].followers++;
+          }
+          
+          if (stats[follower]) {
+            stats[follower].following++;
+          }
+          
+          // Check if current user is following
+          if (follower === currentUsername && stats[following]) {
+            stats[following].isFollowedByMe = true;
+          }
+        });
+        
+        return stats;
+      }, [follows, peers, currentUsername]);
+      
+      // Filter users based on current tab and search query
+      const filteredUsers = useMemo(() => {
+        return peers.filter(peer => {
+          // Apply search filter
+          if (searchQuery && !peer.username.toLowerCase().includes(searchQuery.toLowerCase())) {
+            return false;
+          }
+          
+          // Apply tab filter
+          if (filter === 'following') {
+            return userStats[peer.username]?.isFollowedByMe;
+          } else if (filter === 'not-following') {
+            return peer.username !== currentUsername && !userStats[peer.username]?.isFollowedByMe;
+          }
+          
+          return true;
+        });
+      }, [peers, filter, searchQuery, userStats, currentUsername]);
+      
+      return (
+        <div className="card">
+          <input 
+            type="text" 
+            className="search-box" 
+            placeholder="Search users..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          
+          <div className="filter-tabs">
+            <div 
+              className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
+              onClick={() => setFilter('all')}
+            >
+              All Users
+            </div>
+            <div 
+              className={`filter-tab ${filter === 'following' ? 'active' : ''}`}
+              onClick={() => setFilter('following')}
+            >
+              Following
+            </div>
+            <div 
+              className={`filter-tab ${filter === 'not-following' ? 'active' : ''}`}
+              onClick={() => setFilter('not-following')}
+            >
+              Discover
+            </div>
+          </div>
+          
+          <div>
+            {filteredUsers.length === 0 ? (
+              <div className="empty-state">No users found</div>
+            ) : (
+              filteredUsers.map(user => (
+                <div 
+                  key={user.id} 
+                  className={`user-item ${selectedUser?.username === user.username ? 'selected' : ''}`}
+                  onClick={() => onSelectUser(user)}
+                >
+                  <img src={user.avatarUrl} alt={user.username} className="avatar" />
+                  <div className="user-info">
+                    <div className="username">{user.username}</div>
+                    <div className="stats">
+                      <div className="stat">{userStats[user.username]?.followers || 0} followers</div>
+                      <div className="stat">{userStats[user.username]?.following || 0} following</div>
+                    </div>
+                  </div>
+                  
+                  {user.username !== currentUsername && (
+                    <FollowButton 
+                      targetUsername={user.username} 
+                      currentUsername={currentUsername}
+                      isFollowing={userStats[user.username]?.isFollowedByMe || false}
+                    />
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      );
+    }
+    
+    function FollowButton({ targetUsername, currentUsername, isFollowing }) {
+      const [following, setFollowing] = useState(isFollowing);
+      const [loading, setLoading] = useState(false);
+      
+      // Update when prop changes
+      useEffect(() => {
+        setFollowing(isFollowing);
+      }, [isFollowing]);
+      
+      const handleToggleFollow = async (e) => {
+        e.stopPropagation();
+        setLoading(true);
+        
+        if (following) {
+          // Unfollow: find and delete the follow record
+          const myFollows = room.collection('follow')
+            .filter({ username: currentUsername, followsUsername: targetUsername })
+            .getList();
+            
+          if (myFollows.length > 0) {
+            await room.collection('follow').delete(myFollows[0].id);
+          }
+        } else {
+          // Follow: create a new follow record
+          await room.collection('follow').create({
+            followsUsername: targetUsername
+          });
+        }
+        
+        setFollowing(!following);
+        setLoading(false);
+      };
+      
+      return (
+        <button 
+          className={`follow-btn ${following ? 'following' : ''}`} 
+          onClick={handleToggleFollow}
+          disabled={loading}
+        >
+          {loading ? '...' : (following ? 'Following' : 'Follow')}
+        </button>
+      );
+    }
+    
+    function UserProfile({ user, currentUsername, isCurrentUser, onEditProfile, isEditing, onFinishEditing }) {
+      // Get user profile data
+      const profiles = useSyncExternalStore(
+        room.collection('profile').filter({ username: user.username }).subscribe,
+        () => room.collection('profile').filter({ username: user.username }).getList()
+      );
+      
+      // Get follow stats
+      const follows = useSyncExternalStore(
+        room.collection('follow').subscribe,
+        room.collection('follow').getList
+      );
+      
+      const profileData = profiles[0] || {};
+      
+      const stats = useMemo(() => {
+        const followers = follows.filter(f => f.followsUsername === user.username).length;
+        const following = follows.filter(f => f.username === user.username).length;
+        const isFollowedByMe = follows.some(
+          f => f.username === currentUsername && f.followsUsername === user.username
+        );
+        
+        return { followers, following, isFollowedByMe };
+      }, [follows, user.username, currentUsername]);
+      
+      if (isEditing) {
+        return <ProfileEditor profile={profileData} onFinish={onFinishEditing} />;
+      }
+      
+      return (
+        <div className="card profile-card">
+          <img src={user.avatarUrl} alt={user.username} className="profile-avatar" />
+          <h2 className="profile-username">{user.username}</h2>
+          
+          {profileData.bio && <p className="profile-bio">{profileData.bio}</p>}
+          
+          {profileData.location && <p><strong>Location:</strong> {profileData.location}</p>}
+          {profileData.interests && <p><strong>Interests:</strong> {profileData.interests}</p>}
+          
+          <div className="profile-stats">
+            <div className="profile-stat">
+              <div className="profile-stat-count">{stats.followers}</div>
+              <div className="profile-stat-label">Followers</div>
+            </div>
+            <div className="profile-stat">
+              <div className="profile-stat-count">{stats.following}</div>
+              <div className="profile-stat-label">Following</div>
+            </div>
+          </div>
+          
+          {isCurrentUser ? (
+            <button className="edit-profile-btn" onClick={onEditProfile}>
+              Edit Profile
+            </button>
+          ) : (
+            <FollowButton 
+              targetUsername={user.username} 
+              currentUsername={currentUsername}
+              isFollowing={stats.isFollowedByMe}
+            />
+          )}
+        </div>
+      );
+    }
+    
+    function ProfileEditor({ profile, onFinish }) {
+      const [formData, setFormData] = useState({
+        bio: profile.bio || '',
+        location: profile.location || '',
+        interests: profile.interests || ''
+      });
+      
+      const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+      };
+      
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        await room.collection('profile').update(profile.id, formData);
+        onFinish();
+      };
+      
+      return (
+        <div className="card">
+          <h2>Edit Your Profile</h2>
+          <form className="profile-form" onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Bio</label>
+              <textarea 
+                className="form-textarea"
+                name="bio"
+                value={formData.bio}
+                onChange={handleChange}
+                placeholder="Tell us about yourself"
+              />
+            </div>
+            
+            <div className="form-group">
+              <label className="form-label">Location</label>
+              <input 
+                type="text"
+                className="form-input"
+                name="location"
+                value={formData.location}
+                onChange={handleChange}
+                placeholder="Where are you based?"
+              />
+            </div>
+            
+            <div className="form-group">
+              <label className="form-label">Interests</label>
+              <input 
+                type="text"
+                className="form-input"
+                name="interests"
+                value={formData.interests}
+                onChange={handleChange}
+                placeholder="What are you interested in?"
+              />
+            </div>
+            
+            <div>
+              <button type="submit" className="follow-btn">Save Profile</button>
+              <button type="button" className="edit-profile-btn" onClick={onFinish} style={{marginLeft: '10px'}}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+    
+    // Render the App
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
